@@ -1,0 +1,38 @@
+# OpenGL
+
+/vis/open OGL 600x600-0+0
+#/vis/disable
+
+# Draw geometry:
+/vis/drawVolume
+
+# Axes
+/vis/scene/add/axes 0 0 0 1 cm
+
+# Specify view angle:
+
+/vis/viewer/set/viewpointThetaPhi 75. -60.   #sono sulle x positive
+
+# Specify zoom value:
+/vis/viewer/zoom 10
+
+# Sposta la telecamera:
+/vis/viewer/pan 0 0 cm
+
+# Draw smooth trajectories 
+/vis/scene/add/trajectories 
+/vis/modeling/trajectories/create/drawByCharge
+/vis/modeling/trajectories/drawByCharge-0/default/setDrawStepPts true
+/vis/modeling/trajectories/drawByCharge-0/default/setStepPtsSize 1
+
+# Draw hits at end of event:
+/vis/scene/add/hits
+
+/vis/scene/endOfEventAction accumulate
+
+# Re-establish auto refreshing and verbosity:
+#/vis/viewer/set/autoRefresh true
+/vis/verbose warnings
+
+
+

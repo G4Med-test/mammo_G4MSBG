@@ -1,75 +1,78 @@
-"""Turns the output of one validation run into plots for the Geant Validation Portal.
+#!/usr/bin/env python
 
-The CI imports this file and calls two functions, once for every macro listed in
-validation/config.json:
+# mammo_G4MSBG portal parser: metadata() reads the macro, parse() the
+# captured stdout (dose deposited in each of the 30 TLD positions, scaled
+# to the experimental air-kerma reference).
+#
+# Ported from geant-config-generator/tests/geant4/mammo_G4MSBG/parser.py
+# (gts.BaseParser) to the module-level metadata()/parse() API expected by
+# ci-workflows/validation/export.py.
+import os
 
-1. metadata(commands)  BEFORE the simulation: describe the run from its macro.
-2. parse(job)          AFTER the simulation: read the output files, return plots.
+from geantval import getJSON, one_command, single_run
 
-You only have to edit the lines marked TODO. Example with macro/example.mac:
-
-    commands = [("/myapp/phys/addPhysics", "FTFP_BERT"), ("/run/initialize", ""),
-                ("/gun/particle", "proton"), ("/gun/energy", "100 MeV"), ...]
-
-    metadata(commands) -> {"TEST": "MyTest", "PHYSICS_LIST": "FTFP_BERT",
-                           "PARTICLE": "proton", "ENERGY": 100.0}
-
-    job = that dict + {"path": "<directory of the run>", "VERSION": "11.3.2"}
-    parse(job) -> one plot per `yield`
-
-The run directory contains the files your application wrote with relative names
-(here result.txt) and the captured standard output (test_stdout.txt).
-
-Helpers from ci-workflows/validation/geantval.py:
-- one_command(commands, "/cmd"): value of a command that appears exactly once
-  (error if missing or repeated, so the metadata always matches the macro);
-- energy_mev("100 MeV"): energy in MeV;
-- getJSON(job, ...): builds one plot in the portal format (see parse below).
-"""
-from pathlib import Path
-
-from geantval import energy_mev, getJSON, one_command
+# Particle (gamma/"x-ray") and beam energy (20 keV) are hardcoded in
+# PrimaryGeneratorAction.cc, not configurable from the macro.
+BEAM_PARTICLE = "x-ray"
+BEAM_ENERGY_KEV = 20.0
+EXP_AIR_KERMA_MGY = 13.746
+# Ratio of mass energy-absorption coefficients at 20 keV for dry air and the
+# TLD material (NIST database), unchanged from the original parser.
+AIR_TO_TLD_COEF = 0.808
 
 
 def metadata(commands):
-    """Describe one run, reading every setting from its macro.
+    single_run(commands)
+    superior = one_command(commands, "/app/breast/setBreastPhantom_Superior")
+    return {"TEST": "mammo_G4MSBG",
+            "PHYSLIST": one_command(commands, "/testem/phys/addPhysics"),
+            "INFERIOR": one_command(commands, "/app/breast/setBreastPhantom_Inferior"),
+            "SUPERIOR": superior}
 
-    The returned dict must contain "TEST" (the test name shown on the portal);
-    add whatever parse() needs. Raise an error if the macro is not suitable.
-    """
-    return {
-        "TEST": "MyTest",  # TODO: your test name
-        "PHYSICS_LIST": one_command(commands, "/myapp/phys/addPhysics"),  # TODO: your command
-        "PARTICLE": one_command(commands, "/gun/particle"),
-        "ENERGY": energy_mev(one_command(commands, "/gun/energy")),
-    }
+
+def read_stdout(filename):
+    x, y, yerr = [], [], []
+    ratio_kerma_exp_mc = None
+    last_y = None
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+            if "Reference Air-Kerma" in line:
+                mc_air_kerma_gy = float(line.split()[-2])
+                ratio_kerma_exp_mc = EXP_AIR_KERMA_MGY / (mc_air_kerma_gy * 1000.)
+                continue
+            if "Dose Deposited" not in line:
+                continue
+            if ratio_kerma_exp_mc is None:
+                raise ValueError("Dose line found before Reference Air-Kerma: " + line)
+            if "Uncertainty" not in line:
+                fields = line.split()
+                last_y = float(fields[6]) * 1000. * ratio_kerma_exp_mc * AIR_TO_TLD_COEF
+                y.append(last_y)
+                x.append(int(fields[5].replace(":", "")))
+            elif "%" in line:
+                er_rel = float(line.split()[7])
+                yerr.append(er_rel * last_y / 100.)
+    if not x:
+        raise ValueError("No TLD dose lines found in " + filename)
+    return x, y, yerr
 
 
 def parse(job):
-    """Read the output of the run in job["path"] and yield one plot per `yield`."""
-    # TODO: read your output file. This example expects two columns, x and y,
-    # one point per line; lines starting with # are comments.
-    x, y = [], []
-    for line in (Path(job["path"]) / "result.txt").read_text().splitlines():
-        if line.strip() and not line.startswith("#"):
-            x_value, y_value = line.split()
-            x.append(float(x_value))
-            y.append(float(y_value))
-
-    # "chart" is a set of points (x, y). For a histogram use "histogram" with
-    # binEdgeLow, binEdgeHigh and binContent instead of xValues and yValues.
-    # Optional uncertainties: yStatErrorsPlus/Minus, ySysErrorsPlus/Minus.
-    yield getJSON(
-        job, "chart",
-        mctool_name="GEANT4",
-        mctool_model=job["PHYSICS_LIST"],
-        observableName="TODO observable",  # e.g. "attenuation coefficient"
-        targetName="TODO target",          # e.g. "water"
-        beamParticle=job["PARTICLE"],
-        beamEnergies=[job["ENERGY"]],      # MeV
-        title="TODO title",
-        xAxisName="TODO x, unit",
-        yAxisName="TODO y, unit",
-        xValues=x,
-        yValues=y,
-    )
+    x, y, yerr = read_stdout(os.path.join(job["path"], "test_stdout.txt"))
+    rjson = getJSON(job, "chart",
+                     mctool_name="GEANT4",
+                     mctool_model=job["PHYSLIST"],
+                     observableName="dose deposition",
+                     targetName="TLD",
+                     beamParticle=BEAM_PARTICLE,
+                     beamEnergies=[BEAM_ENERGY_KEV],
+                     title="Dose Deposited in TLD",
+                     xAxisName="TLD position",
+                     yAxisName="dose (mGy)",
+                     xValues=x,
+                     yValues=y,
+                     yStatErrorsPlus=yerr,
+                     yStatErrorsMinus=yerr,
+                     parameters=[{"names": "BreastPhantomSuperior", "values": job["SUPERIOR"]}])
+    yield rjson

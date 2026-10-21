@@ -1,0 +1,30 @@
+#--------------- Dose Device OPTIONS ---------------
+
+/app/detector_device/detector_device TRUE   
+/app/detector_device/setTLDType
+
+#--------------- Breast Phantom OPTIONS ---------------
+
+/app/breast/setPaddleThickness 2.0 mm
+/app/breast/setBreastPhantom_Inferior 4.0 cm
+/app/breast/setBreastPhantom_Superior 0.0 cm
+
+#--------------- Irradiation Field OPTIONS ---------------
+
+/app/tube/setSID 10.00 cm
+	
+/app/det/setImagerX 12.0 cm
+/app/det/setImagerY 20.0 cm
+
+/testem/phys/addPhysics emstandard_opt0
+#/testem/phys/addPhysics emstandard_opt3
+#/testem/phys/addPhysics emstandard_opt4
+#/testem/phys/addPhysics empenelope
+#/testem/phys/addPhysics emlivermore
+
+#----------------------------------------------- 
+
+/run/initialize
+/app/update
+
+/run/beamOn 2000000000

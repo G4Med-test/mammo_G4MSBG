@@ -1,3 +1,8 @@
 {
-  "macros": ["example.mac"]
+  "macros": [
+    "emstandard_opt0_depth_0cm.mac",
+    "emstandard_opt0_depth_1cm.mac",
+    "emstandard_opt0_depth_2cm.mac",
+    "emstandard_opt0_depth_3cm.mac"
+  ]
 }
